@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aa-eveaio"
+version = "1.0.10"
+description = "Alliance Auth plugin for EVE AIO. Grants EVE AIO roles to characters and lets users import their AA-authed toons into EVE AIO."
+readme = "README.md"
+requires-python = ">=3.10,<3.15"
+authors = [{ name = "aa-eveaio contributors" }]
+license = { text = "MIT" }
+dependencies = [
+    "allianceauth>=5.2.0,<6",
+    "requests>=2.28",
+]
+classifiers = [
+    "Environment :: Web Environment",
+    "Framework :: Django",
+    "Framework :: Django :: 5.2",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7", "pytest-django>=4"]
+
+[tool.setuptools.packages.find]
+include = ["aa_eveaio*"]
+
+[tool.setuptools.package-data]
+aa_eveaio = [
+    "templates/aa_eveaio/*.html",
+    "static/aa_eveaio/*",
+]

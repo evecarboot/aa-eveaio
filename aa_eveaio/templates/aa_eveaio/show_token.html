@@ -1,0 +1,38 @@
+{% extends "aa_eveaio/base.html" %}
+{% load i18n %}
+
+{% block eveaio_content %}
+<h1>{% translate "EVE AIO key" %}</h1>
+<div class="card card-primary">
+    <div class="card-body">
+        <p>{% translate "Copy this key into EVE AIO Settings → Alliance Auth key." %}</p>
+        <div class="input-group mb-3">
+            <input type="text" class="form-control" id="eveaio-token" value="{{ token }}" readonly>
+            <button type="button" class="btn btn-primary"
+                    onclick="navigator.clipboard.writeText(document.getElementById('eveaio-token').value); this.textContent='{% translate "Copied!" %}';">
+                <i class="fa-solid fa-copy fa-fw"></i>
+                {% translate "Copy to clipboard" %}
+            </button>
+        </div>
+
+        <hr>
+        <p class="mb-1"><strong>{% translate "Alliance Auth URL" %}</strong></p>
+        <p class="text-muted small">
+            {% translate "Enter this URL (along with your key) in EVE AIO Settings → Alliance Auth." %}
+        </p>
+        <div class="input-group mb-3">
+            <input type="text" class="form-control" id="eveaio-aa-url" value="{{ aa_url }}" readonly>
+            <button type="button" class="btn btn-outline-secondary"
+                    onclick="navigator.clipboard.writeText(document.getElementById('eveaio-aa-url').value); this.textContent='{% translate "Copied!" %}';">
+                <i class="fa-solid fa-copy fa-fw"></i>
+                {% translate "Copy" %}
+            </button>
+        </div>
+
+        <a href="{% url 'aa_eveaio:index' %}" class="btn btn-secondary">
+            <i class="fa-solid fa-arrow-left fa-fw"></i>
+            {% translate "Back" %}
+        </a>
+    </div>
+</div>
+{% endblock %}

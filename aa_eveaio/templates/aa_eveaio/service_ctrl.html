@@ -1,0 +1,36 @@
+{% load i18n %}
+<tr>
+    <td>{{ service_name }}</td>
+    <td>
+        {% if has_token %}
+            {% if token_preview %}
+                <code>{{ token_preview }}</code>
+                {% if show_token_url %}
+                    <a href="{{ show_token_url }}" class="ms-1" title="{% translate 'Show key' %}">
+                        <i class="fa-solid fa-eye"></i>
+                    </a>
+                {% endif %}
+            {% else %}
+                —
+            {% endif %}
+        {% else %}
+            —
+        {% endif %}
+    </td>
+    <td><a href="{{ service_url }}">{{ service_url }}</a></td>
+    <td>
+        {% if has_token %}
+            {% if urls.auth_deactivate %}
+                <a class="btn btn-danger" href="{% url urls.auth_deactivate %}" title="{% translate 'Deactivate' %}">
+                    <i class="fa-solid fa-xmark fa-fw"></i>
+                </a>
+            {% endif %}
+        {% else %}
+            {% if urls.auth_activate %}
+                <a class="btn btn-success" href="{% url urls.auth_activate %}" title="{% translate 'Activate' %}">
+                    <i class="fa-solid fa-check fa-fw"></i>
+                </a>
+            {% endif %}
+        {% endif %}
+    </td>
+</tr>

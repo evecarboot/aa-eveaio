@@ -1,0 +1,78 @@
+{% extends "aa_eveaio/base.html" %}
+{% load i18n %}
+
+{% block eveaio_content %}
+<h1>{% translate "EVE AIO" %}</h1>
+<p class="text-muted">
+    {% translate "Use your Alliance Auth key in EVE AIO Settings so the app can use roles assigned here (e.g. Station Manager) instead of in-game roles." %}
+</p>
+
+{% if is_staff %}
+<div class="card card-primary mb-3">
+    <div class="card-header">
+        <div class="card-title">{% translate "Administration" %}</div>
+    </div>
+    <div class="card-body">
+        <a href="{% url 'admin:aa_eveaio_eveaiocharacterrole_changelist' %}" class="btn btn-primary">
+            <i class="fa-solid fa-user-gear fa-fw"></i>
+            {% translate "Manage EVE AIO character roles (Admin)" %}
+        </a>
+    </div>
+</div>
+{% endif %}
+
+<div class="card card-primary">
+    <div class="card-header">
+        <div class="card-title">{% translate "Your EVE AIO key" %}</div>
+    </div>
+    <div class="card-body">
+        {% if has_token %}
+        <p>
+            {% translate "Key is active." %}
+            <code>{{ token_preview }}</code>
+        </p>
+        <div class="d-flex flex-wrap gap-2 mb-2">
+            <a href="{% url 'aa_eveaio:show_token' %}" class="btn btn-secondary">
+                <i class="fa-solid fa-eye fa-fw"></i>
+                {% translate "Show / copy full key" %}
+            </a>
+            <form method="post" action="{% url 'aa_eveaio:regenerate_token' %}" class="d-inline">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-warning">
+                    <i class="fa-solid fa-rotate fa-fw"></i>
+                    {% translate "Regenerate key" %}
+                </button>
+            </form>
+        </div>
+        <p class="text-muted small mb-0">
+            {% translate "Regenerating invalidates the old key; update EVE AIO Settings with the new one." %}
+        </p>
+        {% else %}
+        <p>{% translate "Activate the service to get a key you can enter in EVE AIO." %}</p>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="{% url 'aa_eveaio:activate' %}" class="btn btn-success">
+                <i class="fa-solid fa-check fa-fw"></i>
+                {% translate "Activate EVE AIO (get key)" %}
+            </a>
+            <a href="{% url 'services:services' %}" class="btn btn-secondary">
+                {% translate "Services page" %}
+            </a>
+        </div>
+        {% endif %}
+
+        <hr>
+        <p class="mb-1"><strong>{% translate "Alliance Auth URL" %}</strong></p>
+        <p class="text-muted small">
+            {% translate "Enter this URL (along with your key) in EVE AIO Settings → Alliance Auth." %}
+        </p>
+        <div class="input-group">
+            <input type="text" class="form-control" id="eveaio-aa-url" value="{{ aa_url }}" readonly>
+            <button type="button" class="btn btn-outline-secondary"
+                    onclick="navigator.clipboard.writeText(document.getElementById('eveaio-aa-url').value); this.textContent='{% translate "Copied!" %}';">
+                <i class="fa-solid fa-copy fa-fw"></i>
+                {% translate "Copy" %}
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
