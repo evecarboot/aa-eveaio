@@ -132,6 +132,11 @@ class EveAioLicense(models.Model):
         blank=True,
         default="",
     )
+    license_api_key = models.CharField(
+        max_length=256,
+        blank=True,
+        default="",
+    )
     corp_id = models.BigIntegerField(
         null=True,
         blank=True,

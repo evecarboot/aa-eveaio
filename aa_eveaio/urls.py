@@ -8,6 +8,7 @@ app_name = "aa_eveaio"
 
 urlpatterns = [
     path("", views.index, name="index"),
+    path("license/", views.license_config, name="license_config"),
     path("token/", views.show_token, name="show_token"),
     path("activate/", views.activate, name="activate"),
     path("deactivate/", views.deactivate, name="deactivate"),

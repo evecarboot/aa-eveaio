@@ -53,6 +53,33 @@ def index(request):
 
 @login_required
 @permission_required("aa_eveaio.basic_access")
+@require_http_methods(["GET", "POST"])
+def license_config(request):
+    if not request.user.is_staff:
+        return redirect("aa_eveaio:index")
+
+    license_obj = EveAioLicense.get_solo()
+    saved = False
+
+    if request.method == "POST":
+        license_obj.license_key = request.POST.get("license_key", "").strip()
+        license_obj.license_api_key = request.POST.get("license_api_key", "").strip()
+        corp_id_str = request.POST.get("corp_id", "").strip()
+        license_obj.corp_id = int(corp_id_str) if corp_id_str else None
+        license_obj.save()
+        from django.core.cache import cache
+        cache.delete("eveaio_license_valid")
+        saved = True
+
+    context = {
+        "license": license_obj,
+        "saved": saved,
+    }
+    return render(request, "aa_eveaio/license_config.html", context)
+
+
+@login_required
+@permission_required("aa_eveaio.basic_access")
 @require_GET
 def show_token(request):
     """Reveal the full token for copying (user must be logged in)."""
@@ -121,12 +148,16 @@ def _check_license():
         )
 
     try:
+        headers = {}
+        if license_obj.license_api_key:
+            headers["X-License-Api-Key"] = license_obj.license_api_key
         params = {"key": license_obj.license_key}
         if license_obj.corp_id:
             params["corp_id"] = license_obj.corp_id
         resp = django_requests.get(
             f"{LICENSE_SERVER_URL}/api/validate",
             params=params,
+            headers=headers,
             timeout=10,
         )
         if resp.status_code == 200:
@@ -602,12 +633,16 @@ def api_auth(request):
         )
 
     try:
+        headers = {}
+        if license_obj.license_api_key:
+            headers["X-License-Api-Key"] = license_obj.license_api_key
         sign_body = {"challenge": challenge, "key": license_obj.license_key}
         if license_obj.corp_id:
             sign_body["corp_id"] = license_obj.corp_id
         resp = django_requests.post(
             f"{LICENSE_SERVER_URL}/api/sign",
             json=sign_body,
+            headers=headers,
             timeout=10,
         )
         if resp.status_code == 200:

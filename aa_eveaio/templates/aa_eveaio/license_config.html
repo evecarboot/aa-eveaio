@@ -1,0 +1,77 @@
+{% extends "aa_eveaio/base.html" %}
+{% load i18n %}
+
+{% block page_title %}{% translate "EVE AIO License" %}{% endblock %}
+
+{% block eveaio_content %}
+<div class="row justify-content-center">
+  <div class="col-md-8">
+    <h2 class="mb-4">EVE AIO License</h2>
+
+    {% if saved %}
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+      License saved.
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endif %}
+
+    <form method="post" class="mb-4">
+      {% csrf_token %}
+      <div class="mb-3">
+        <label for="license_key" class="form-label">License Key</label>
+        <input type="text" class="form-control" id="license_key" name="license_key"
+               value="{{ license.license_key }}" placeholder="EVEAIO-XXXX-XXXX-XXXX">
+      </div>
+      <div class="mb-3">
+        <label for="license_api_key" class="form-label">License API Key</label>
+        <input type="text" class="form-control" id="license_api_key" name="license_api_key"
+               value="{{ license.license_api_key }}">
+      </div>
+      <div class="mb-3">
+        <label for="corp_id" class="form-label">Corp ID</label>
+        <input type="number" class="form-control" id="corp_id" name="corp_id"
+               value="{{ license.corp_id|default_if_none:"" }}" placeholder="98000001">
+      </div>
+      <button type="submit" class="btn btn-primary">Save</button>
+    </form>
+
+    {% if license.last_validated %}
+    <div class="card mt-4">
+      <div class="card-header">Validation Status</div>
+      <div class="card-body">
+        <table class="table table-sm mb-0">
+          <tr>
+            <th style="width: 180px;">Status</th>
+            <td>
+              {% if license.last_valid %}
+                <span class="badge bg-success">Valid</span>
+              {% else %}
+                <span class="badge bg-danger">Invalid</span>
+              {% endif %}
+            </td>
+          </tr>
+          <tr>
+            <th>Tier</th>
+            <td>{{ license.license_tier|default:"—" }}</td>
+          </tr>
+          <tr>
+            <th>Last Validated</th>
+            <td>{{ license.last_validated|date:"Y-m-d H:i" }}</td>
+          </tr>
+          <tr>
+            <th>Expires</th>
+            <td>{{ license.license_expires|date:"Y-m-d H:i"|default:"—" }}</td>
+          </tr>
+          {% if license.last_error %}
+          <tr>
+            <th>Last Error</th>
+            <td class="text-danger">{{ license.last_error }}</td>
+          </tr>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

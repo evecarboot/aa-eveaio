@@ -13,9 +13,13 @@
         <div class="card-title">{% translate "Administration" %}</div>
     </div>
     <div class="card-body">
-        <a href="{% url 'admin:aa_eveaio_eveaiocharacterrole_changelist' %}" class="btn btn-primary">
+        <a href="{% url 'aa_eveaio:license_config' %}" class="btn btn-primary me-2">
+            <i class="fa-solid fa-key fa-fw"></i>
+            {% translate "License Settings" %}
+        </a>
+        <a href="{% url 'admin:aa_eveaio_eveaiocharacterrole_changelist' %}" class="btn btn-secondary">
             <i class="fa-solid fa-user-gear fa-fw"></i>
-            {% translate "Manage EVE AIO character roles (Admin)" %}
+            {% translate "Manage character roles" %}
         </a>
     </div>
 </div>

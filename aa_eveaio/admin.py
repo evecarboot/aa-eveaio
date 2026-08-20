@@ -3,7 +3,7 @@
 from django.contrib import admin
 from django.utils.html import format_html
 
-from aa_eveaio.models import EveAioCharacterRole, EveAioServiceToken, EveAioSettingsSync, EveAioLicense
+from aa_eveaio.models import EveAioCharacterRole, EveAioServiceToken, EveAioSettingsSync
 
 
 @admin.register(EveAioServiceToken)
@@ -44,33 +44,3 @@ class EveAioSettingsSyncAdmin(admin.ModelAdmin):
     list_display = ("user", "app_version", "updated_at")
     readonly_fields = ("created_at", "updated_at")
     search_fields = ("user__username",)
-
-
-@admin.register(EveAioLicense)
-class EveAioLicenseAdmin(admin.ModelAdmin):
-    list_display = ("license_key_preview", "last_valid", "license_tier", "last_validated", "license_expires")
-    readonly_fields = ("last_validated", "last_valid", "license_tier", "license_expires", "last_error", "updated_at")
-    fieldsets = (
-        ("License Keys", {
-            "fields": ("license_key", "corp_id"),
-        }),
-        ("Validation Status", {
-            "fields": ("last_valid", "license_tier", "last_validated", "license_expires", "last_error", "updated_at"),
-            "classes": ("collapse",),
-        }),
-    )
-
-    def license_key_preview(self, obj):
-        if not obj.license_key:
-            return "(not set)"
-        return f"{obj.license_key[:8]}…{obj.license_key[-4:]}" if len(obj.license_key) > 16 else obj.license_key
-
-    license_key_preview.short_description = "License Key"
-
-    def has_add_permission(self, request):
-        """Only one license record (singleton)."""
-        return not EveAioLicense.objects.exists()
-
-    def has_delete_permission(self, request, obj=None):
-        """Don't allow deleting the license record."""
-        return False
