@@ -24,7 +24,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_GET, require_http_methods
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from aa_eveaio.models import EveAioCharacterRole, EveAioServiceToken, EveAioLicense
 
