@@ -52,7 +52,7 @@ class EveAioLicenseAdmin(admin.ModelAdmin):
     readonly_fields = ("last_validated", "last_valid", "license_tier", "license_expires", "last_error", "updated_at")
     fieldsets = (
         ("License Keys", {
-            "fields": ("license_key", "license_api_key", "corp_id"),
+            "fields": ("license_key", "corp_id"),
         }),
         ("Validation Status", {
             "fields": ("last_valid", "license_tier", "last_validated", "license_expires", "last_error", "updated_at"),
