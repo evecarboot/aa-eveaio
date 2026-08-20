@@ -121,7 +121,7 @@ class EveAioServiceHook(ServicesHook):
             {
                 "service_name": self.title,
                 "urls": urls_obj,
-                "service_url": request.build_absolute_uri(reverse("aa_eveaio:index")),
+                "service_url": request.build_absolute_uri(reverse("aa_eveaio:index")).replace("http://", "https://"),
                 "username": "EVE AIO",
                 "has_token": token_obj is not None,
                 "token_preview": (

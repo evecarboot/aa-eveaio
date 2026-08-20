@@ -46,7 +46,7 @@ def index(request):
             f"{token_obj.token[:8]}…" if token_obj and token_obj.token else None
         ),
         "is_staff": request.user.is_staff,
-        "aa_url": request.build_absolute_uri("/").rstrip("/"),
+        "aa_url": request.build_absolute_uri("/").rstrip("/").replace("http://", "https://"),
     }
     return render(request, "aa_eveaio/index.html", context)
 
@@ -87,7 +87,7 @@ def show_token(request):
         return redirect("aa_eveaio:index")
     return render(request, "aa_eveaio/show_token.html", {
         "token": token_obj.token,
-        "aa_url": request.build_absolute_uri("/").rstrip("/"),
+        "aa_url": request.build_absolute_uri("/").rstrip("/").replace("http://", "https://"),
     })
 
 
