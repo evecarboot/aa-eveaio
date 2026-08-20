@@ -23,11 +23,6 @@
                value="{{ license.license_key }}" placeholder="EVEAIO-XXXX-XXXX-XXXX">
       </div>
       <div class="mb-3">
-        <label for="license_api_key" class="form-label">License API Key</label>
-        <input type="text" class="form-control" id="license_api_key" name="license_api_key"
-               value="{{ license.license_api_key }}">
-      </div>
-      <div class="mb-3">
         <label for="corp_id" class="form-label">Corp ID</label>
         <input type="number" class="form-control" id="corp_id" name="corp_id"
                value="{{ license.corp_id|default_if_none:"" }}" placeholder="98000001">

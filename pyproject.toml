@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aa-eveaio"
-version = "1.0.13"
+version = "1.0.14"
 description = "Alliance Auth plugin for EVE AIO. Grants EVE AIO roles to characters and lets users import their AA-authed toons into EVE AIO."
 readme = "README.md"
 requires-python = ">=3.10,<3.15"
