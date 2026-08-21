@@ -17,5 +17,6 @@ urlpatterns = [
     path("api/esi_tokens/", views.api_esi_tokens, name="api_esi_tokens"),
     path("api/esi/<path:esi_path>", views.api_esi_proxy, name="api_esi_proxy"),
     path("api/settings_sync/", views.api_settings_sync, name="api_settings_sync"),
+    path("api/data_sync/", views.api_data_sync, name="api_data_sync"),
     path("api/auth/", views.api_auth, name="api_auth"),
 ]

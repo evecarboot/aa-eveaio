@@ -594,9 +594,77 @@ def api_settings_sync(request):
             })
 
 
+@require_http_methods(["GET", "POST"])
+@csrf_exempt
+@xframe_options_exempt
+def api_data_sync(request):
+    """Cloud sync endpoint for EVE AIO user data (build jobs, custom prices, etc.).
 
+    GET: returns the user's saved data blobs.
+    POST: stores/updates the user's data blobs.
 
+    Auth: X-Eveaio-Token header or ?token= query param.
+    Body (POST): {"data": {"ledger": {...}, "custom_prices": {...}, ...}, "version": "2.1.20"}
+    Response (GET): {"data": {...}, "updated_at": "...", "version": "..."}
+    """
+    license_error = _check_license()
+    if license_error:
+        return license_error
 
+    import json
+
+    token_str = _get_token_from_request(request)
+    if not token_str:
+        return JsonResponse({"error": _("Missing token")}, status=401)
+    try:
+        token_obj = EveAioServiceToken.objects.select_related("user").get(
+            token=token_str
+        )
+    except EveAioServiceToken.DoesNotExist:
+        return JsonResponse({"error": _("Invalid token")}, status=403)
+
+    from aa_eveaio.models import EveAioDataSync
+
+    if request.method == "POST":
+        try:
+            body = json.loads(request.body or b"{}")
+        except (json.JSONDecodeError, ValueError):
+            return JsonResponse({"error": "Invalid JSON body"}, status=400)
+        data_blobs = body.get("data", {})
+        app_version = body.get("version", "")
+        if not isinstance(data_blobs, dict):
+            return JsonResponse({"error": "data must be a JSON object"}, status=400)
+        obj, created = EveAioDataSync.objects.update_or_create(
+            user=token_obj.user,
+            defaults={
+                "data_json": json.dumps(data_blobs),
+                "app_version": app_version,
+            },
+        )
+        logger.info(
+            "EVE AIO data sync: %s uploaded %d blobs (version %s)",
+            token_obj.user, len(data_blobs), app_version,
+        )
+        return JsonResponse({
+            "status": "ok",
+            "updated_at": obj.updated_at.isoformat(),
+            "blobs_stored": len(data_blobs),
+        })
+
+    else:  # GET
+        try:
+            obj = EveAioDataSync.objects.get(user=token_obj.user)
+            return JsonResponse({
+                "data": json.loads(obj.data_json),
+                "updated_at": obj.updated_at.isoformat(),
+                "version": obj.app_version,
+            })
+        except EveAioDataSync.DoesNotExist:
+            return JsonResponse({
+                "data": None,
+                "updated_at": None,
+                "version": "",
+            })
 @require_POST
 @csrf_exempt
 @xframe_options_exempt

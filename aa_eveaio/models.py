@@ -158,3 +158,29 @@ class EveAioLicense(models.Model):
         """Return the singleton instance, creating it if needed."""
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+
+class EveAioDataSync(models.Model):
+    """Cloud sync blob for EVE AIO user data (build jobs, custom prices, etc.).
+    Stores multiple named JSON blobs so users can replicate their manual data
+    across multiple PCs. One record per user (last-write-wins)."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="eveaio_data_sync",
+    )
+    data_json = models.TextField(
+        default="{}",
+        help_text="JSON object of named data blobs: {ledger: {...}, custom_prices: {...}, ...}",
+    )
+    app_version = models.CharField(max_length=32, blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "EVE AIO data sync"
+        verbose_name_plural = "EVE AIO data syncs"
+
+    def __str__(self):
+        return f"EVE AIO data sync for {self.user}"
