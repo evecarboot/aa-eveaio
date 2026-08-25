@@ -55,7 +55,17 @@ def register_urls():
             "aa_eveaio.views.api_esi_tokens",
             "aa_eveaio.views.api_esi_proxy",
             "aa_eveaio.views.api_settings_sync",
+            "aa_eveaio.views.api_data_sync",
             "aa_eveaio.views.api_auth",
+            "aa_eveaio.views.api_fleet_roster",
+            "aa_eveaio.views.api_discord_map",
+            "aa_eveaio.views.api_groups",
+            "aa_eveaio.views.api_doctrines",
+            "aa_eveaio.views.api_fat",
+            "aa_eveaio.views.api_srp_eligible",
+            "aa_eveaio.views.api_srp_claim",
+            "aa_eveaio.views.api_timers",
+            "aa_eveaio.views.api_fleet_templates",
         ],
     )
 

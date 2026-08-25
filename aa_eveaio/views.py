@@ -335,10 +335,21 @@ def _get_esi_tokens_for_user(user_id):
         return []
     char_ids = [c["character_id"] for c in characters]
 
+    all_tokens = (
+        Token.objects
+        .filter(character_id__in=char_ids)
+        .prefetch_related("scopes")
+        .select_related()
+    )
+
+    tokens_by_char = {}
+    for token in all_tokens:
+        tokens_by_char.setdefault(token.character_id, []).append(token)
+
     tokens = []
     for cid in char_ids:
         try:
-            char_tokens = Token.objects.filter(character_id=cid).select_related()
+            char_tokens = tokens_by_char.get(cid)
             if not char_tokens:
                 continue
 
@@ -347,6 +358,12 @@ def _get_esi_tokens_for_user(user_id):
             best_scope_count = -1
 
             for token in char_tokens:
+                # Refresh expired tokens up-front so the access_token we hand
+                # back to EVE AIO is actually usable. Tokens that fail to
+                # refresh are returned as-is (with their refresh_token) so
+                # EVE AIO can try refreshing with its own ESI client
+                # credentials. We deliberately do NOT use ``require_valid()``
+                # because that method DELETES tokens that fail to refresh.
                 if token.expired and token.can_refresh:
                     try:
                         token.refresh()
@@ -357,9 +374,9 @@ def _get_esi_tokens_for_user(user_id):
                             cid, e,
                         )
 
-                token_scopes = set(
-                    token.scopes.values_list("name", flat=True)
-                )
+                # Use the prefetched scopes cache instead of issuing a fresh
+                # query per token (values_list bypasses the prefetch cache).
+                token_scopes = {s.name for s in token.scopes.all()}
                 all_scopes |= token_scopes
 
                 if len(token_scopes) > best_scope_count:
@@ -755,3 +772,584 @@ def _fail_open_or_closed_signed(license_obj):
         {"valid": False, "reason": "License server unreachable and no recent valid validation."},
         status=402,
     )
+
+
+def _auth_and_get_token(request):
+    """Shared auth check for Fleet Manager endpoints. Returns (token_obj, None) or (None, JsonResponse)."""
+    license_error = _check_license()
+    if license_error:
+        return None, license_error
+    token_str = _get_token_from_request(request)
+    if not token_str:
+        return None, JsonResponse({"error": _("Missing token")}, status=401)
+    try:
+        token_obj = EveAioServiceToken.objects.select_related("user").get(token=token_str)
+    except EveAioServiceToken.DoesNotExist:
+        return None, JsonResponse({"error": _("Invalid token")}, status=403)
+    return token_obj, None
+
+
+def _get_user_corp_id(user_id):
+    """Return (corp_id, corp_name) from the user's main character."""
+    chars = _get_user_characters_from_aa(user_id)
+    if not chars:
+        return None, None
+    c = chars[0]
+    return c.get("corporation_id"), c.get("corporation_name")
+
+
+def _get_corp_member_chars(corp_id):
+    """Return list of EveCharacter dicts in the same corp, linked to AA users."""
+    try:
+        from allianceauth.eveonline.models import EveCharacter
+        qs = EveCharacter.objects.filter(corporation_id=corp_id).values(
+            "character_id", "character_name", "corporation_id", "corporation_name",
+        )
+        return [dict(c) for c in qs]
+    except Exception as e:
+        logger.warning("Failed to get corp members: %s", e)
+        return []
+
+
+def _get_esi_token_for_char(character_id, scopes_required=None):
+    """Return a valid access token for a character, or None."""
+    try:
+        from esi.models import Token
+        qs = Token.objects.filter(character_id=character_id)
+        if scopes_required:
+            for sc in scopes_required:
+                qs = qs.filter(scopes__name=sc)
+        token = qs.first()
+        if not token:
+            return None
+        if token.expired and token.can_refresh:
+            try:
+                token.refresh()
+            except Exception:
+                return None
+        return token.access_token
+    except Exception:
+        return None
+
+
+def _esi_get(url, access_token, params=None):
+    """Make a GET request to ESI with auth and compatibility header."""
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "X-Compatibility-Date": "2025-07-22",
+    }
+    try:
+        resp = django_requests.get(url, headers=headers, params=params or {}, timeout=15)
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception:
+        pass
+    return None
+
+
+@require_GET
+@csrf_exempt
+@xframe_options_exempt
+def api_fleet_roster(request):
+    """Return corp members with online status, ship, and system."""
+    token_obj, err = _auth_and_get_token(request)
+    if err:
+        return err
+
+    corp_id, corp_name = _get_user_corp_id(token_obj.user_id)
+    if not corp_id:
+        return JsonResponse({"members": [], "corp_id": None, "corp_name": None})
+
+    cache_key = f"eveaio_roster_{corp_id}"
+    cached = cache.get(cache_key)
+    if cached:
+        return JsonResponse(cached)
+
+    members_data = _get_corp_member_chars(corp_id)
+    if not members_data:
+        result = {"members": [], "corp_id": corp_id, "corp_name": corp_name}
+        cache.set(cache_key, result, 60)
+        return JsonResponse(result)
+
+    result_members = []
+    # Scopes required for the roster lookups below. Requesting a token that
+    # actually has these scopes avoids silent 403s from ESI.
+    roster_scopes = [
+        "esi-location.read_online.v1",
+        "esi-location.read_location.v1",
+        "esi-location.read_ship_type.v1",
+    ]
+    for m in members_data:
+        cid = m["character_id"]
+        entry = {
+            "character_id": cid,
+            "character_name": m.get("character_name", ""),
+            "online": False,
+            "ship_name": None,
+            "system_name": None,
+            "solar_system_id": None,
+        }
+        access_token = _get_esi_token_for_char(cid, scopes_required=roster_scopes)
+        if access_token:
+            online = _esi_get(f"{ESI_BASE}/characters/{cid}/online/", access_token)
+            if online and online.get("online"):
+                entry["online"] = True
+                loc = _esi_get(f"{ESI_BASE}/characters/{cid}/location/", access_token)
+                if loc and loc.get("solar_system_id"):
+                    entry["solar_system_id"] = loc["solar_system_id"]
+                    sys_info = _esi_get(f"{ESI_BASE}/universe/systems/{loc['solar_system_id']}/", access_token)
+                    if sys_info:
+                        entry["system_name"] = sys_info.get("name")
+                ship = _esi_get(f"{ESI_BASE}/characters/{cid}/ship/", access_token)
+                if ship and ship.get("ship_type_id"):
+                    ship_info = _esi_get(f"{ESI_BASE}/universe/types/{ship['ship_type_id']}/", access_token)
+                    if ship_info:
+                        entry["ship_name"] = ship_info.get("name")
+        result_members.append(entry)
+
+    result = {"members": result_members, "corp_id": corp_id, "corp_name": corp_name}
+    cache.set(cache_key, result, 60)
+    return JsonResponse(result)
+
+
+@require_GET
+@csrf_exempt
+@xframe_options_exempt
+def api_discord_map(request):
+    """Return {character_id: {discord_id, discord_username}} for corp members."""
+    token_obj, err = _auth_and_get_token(request)
+    if err:
+        return err
+
+    corp_id, _ = _get_user_corp_id(token_obj.user_id)
+    if not corp_id:
+        return JsonResponse({"discord_map": {}})
+
+    try:
+        from allianceauth.services.modules.discord.models import DiscordUser
+    except ImportError:
+        return JsonResponse({"discord_map": {}, "error": "Discord service not installed"})
+
+    raw = _map_members_to_user_attr(corp_id, _discord_info_for_user)
+    # Drop members with no linked Discord account (fn returned None).
+    discord_map = {cid: info for cid, info in raw.items() if info is not None}
+    return JsonResponse({"discord_map": discord_map})
+
+
+def _discord_info_for_user(user):
+    """Return {discord_id, discord_username} for a user, or None."""
+    if user is None:
+        return None
+    try:
+        from allianceauth.services.modules.discord.models import DiscordUser
+        du = DiscordUser.objects.get(user=user)
+        return {
+            "discord_id": str(du.uid),
+            "discord_username": du.username or "",
+        }
+    except DiscordUser.DoesNotExist:
+        return None
+    except Exception:
+        return None
+
+
+@require_GET
+@csrf_exempt
+@xframe_options_exempt
+def api_groups(request):
+    """Return AA groups per character for corp members."""
+    token_obj, err = _auth_and_get_token(request)
+    if err:
+        return err
+
+    corp_id, _ = _get_user_corp_id(token_obj.user_id)
+    if not corp_id:
+        return JsonResponse({"groups": {}})
+
+    groups_map = _map_members_to_user_attr(
+        corp_id,
+        lambda user: [g.name for g in user.groups.all()] if user is not None else [],
+    )
+    return JsonResponse({"groups": groups_map})
+
+
+def _map_members_to_user_attr(corp_id, fn):
+    """
+    Build {str(character_id): fn(user)} for every EveCharacter in corp_id.
+
+    Uses EveCharacter.user directly (one query with select_related) instead
+    of iterating every AA user for every member. ``fn`` receives the owning
+    User (or None if the character isn't linked to a user) and returns the
+    per-character payload. ``user__groups`` is prefetched so callers reading
+    ``user.groups.all()`` don't trigger an extra query per member.
+    """
+    out = {}
+    try:
+        from allianceauth.eveonline.models import EveCharacter
+        qs = (
+            EveCharacter.objects
+            .filter(corporation_id=corp_id)
+            .select_related("user")
+            .prefetch_related("user__groups")
+        )
+        for char in qs.iterator():
+            try:
+                out[str(char.character_id)] = fn(getattr(char, "user", None))
+            except Exception as e:
+                logger.warning(
+                    "Failed to map user attr for character %s: %s",
+                    char.character_id, e,
+                )
+                continue
+    except Exception as e:
+        logger.warning("Failed to build member->user map for corp %s: %s", corp_id, e)
+    return out
+
+
+@require_GET
+@csrf_exempt
+@xframe_options_exempt
+def api_doctrines(request):
+    """Return corp doctrine fittings from the fittings plugin."""
+    token_obj, err = _auth_and_get_token(request)
+    if err:
+        return err
+
+    try:
+        from fittings.models import Doctrine, Fitting
+    except ImportError:
+        return JsonResponse({"doctrines": [], "error": "Fittings plugin not installed"})
+
+    doctrines = []
+    try:
+        for doctrine in Doctrine.objects.all().order_by("name"):
+            fits = []
+            for fit in doctrine.fittings.all():
+                fits.append({
+                    "name": fit.name,
+                    "ship_type_id": fit.ship_type_type_id,
+                    "ship_name": fit.ship_type.name_en if hasattr(fit.ship_type, "name_en") else str(fit.ship_type),
+                    "description": fit.description,
+                })
+            doctrines.append({
+                "name": doctrine.name,
+                "description": doctrine.description,
+                "fittings": fits,
+            })
+    except Exception as e:
+        logger.warning("Failed to read doctrines: %s", e)
+        return JsonResponse({"doctrines": [], "error": f"Failed to read doctrines: {e}"})
+
+    return JsonResponse({"doctrines": doctrines})
+
+
+@require_GET
+@csrf_exempt
+@xframe_options_exempt
+def api_fat(request):
+    """Return per-pilot fleet attendance from the FAT plugin."""
+    token_obj, err = _auth_and_get_token(request)
+    if err:
+        return err
+
+    corp_id, _ = _get_user_corp_id(token_obj.user_id)
+    if not corp_id:
+        return JsonResponse({"fat_data": {}})
+
+    fat_models = None
+    try:
+        from afat.models import Fatlink, FatLinkCharacter
+        fat_models = (Fatlink, FatLinkCharacter)
+    except ImportError:
+        pass
+
+    if not fat_models:
+        return JsonResponse({"fat_data": {}, "error": "FAT plugin not installed"})
+
+    FatLink, FatLinkCharacter = fat_models
+    members = _get_corp_member_chars(corp_id)
+    member_ids = {m["character_id"] for m in members}
+
+    ninety_days_ago = timezone.now() - timedelta(days=90)
+    try:
+        total_fleets = FatLink.objects.filter(fatdatetime__gte=ninety_days_ago).count()
+    except Exception:
+        total_fleets = 0
+
+    fat_data = {}
+    for cid in member_ids:
+        try:
+            attended = FatLinkCharacter.objects.filter(
+                character_id=cid,
+                fatlink__fatdatetime__gte=ninety_days_ago,
+            ).count()
+            last = FatLinkCharacter.objects.filter(
+                character_id=cid,
+            ).order_by("-fatlink__fatdatetime").first()
+            last_fleet = None
+            if last and hasattr(last, "fatlink") and last.fatlink:
+                last_fleet = last.fatlink.fatdatetime.isoformat() if last.fatlink.fatdatetime else None
+            rate = attended / total_fleets if total_fleets > 0 else 0
+            fat_data[str(cid)] = {
+                "fleets_attended": attended,
+                "total_fleets": total_fleets,
+                "rate": round(rate, 2),
+                "last_fleet": last_fleet,
+            }
+        except Exception:
+            continue
+
+    return JsonResponse({"fat_data": fat_data})
+
+
+@require_GET
+@csrf_exempt
+@xframe_options_exempt
+def api_srp_eligible(request):
+    """Return SRP-eligible ship types and payout rates."""
+    token_obj, err = _auth_and_get_token(request)
+    if err:
+        return err
+
+    try:
+        from srp.models import SrpShipType
+    except ImportError:
+        return JsonResponse({"srp_eligible": {}, "error": "SRP plugin not installed"})
+
+    srp_eligible = {}
+    try:
+        for st in SrpShipType.objects.all():
+            srp_eligible[str(st.ship_type_id)] = {
+                "ship_name": getattr(st, "ship_name", ""),
+                "payout": getattr(st, "srp_lose_amount", 0) or 0,
+            }
+    except Exception as e:
+        logger.warning("Failed to read SRP ship types: %s", e)
+
+    return JsonResponse({"srp_eligible": srp_eligible})
+
+
+@require_POST
+@csrf_exempt
+@xframe_options_exempt
+def api_srp_claim(request):
+    """Submit an SRP claim from the Fleet Manager.
+
+    Only characters belonging to the requesting user's corp are accepted, so
+    one authenticated EVE AIO user cannot file SRP claims on behalf of an
+    arbitrary character outside their corporation.
+    """
+    import json
+
+    token_obj, err = _auth_and_get_token(request)
+    if err:
+        return err
+
+    try:
+        from srp.models import SrpShipRequest
+    except ImportError:
+        return JsonResponse({"error": "SRP plugin not installed"}, status=400)
+
+    try:
+        body = json.loads(request.body or b"{}")
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON body"}, status=400)
+
+    character_id = body.get("character_id")
+    killmail_id = body.get("killmail_id")
+    ship_type_id = body.get("ship_type_id")
+    if not character_id or not killmail_id or not ship_type_id:
+        return JsonResponse(
+            {"error": "character_id, killmail_id and ship_type_id are required"},
+            status=400,
+        )
+
+    # Authorisation: the character must belong to the caller's corp.
+    corp_id, _ = _get_user_corp_id(token_obj.user_id)
+    if not corp_id:
+        return JsonResponse({"error": "No corp found for user"}, status=403)
+    member_ids = {m["character_id"] for m in _get_corp_member_chars(corp_id)}
+    if character_id not in member_ids:
+        return JsonResponse(
+            {"error": "Character is not a member of your corporation"},
+            status=403,
+        )
+
+    ship_name = body.get("ship_name", "")
+    total_value = body.get("total_value", 0)
+
+    from allianceauth.eveonline.models import EveCharacter
+    char = EveCharacter.objects.filter(character_id=character_id).first()
+    if not char:
+        return JsonResponse(
+            {"error": "Character not found in Alliance Auth"},
+            status=400,
+        )
+
+    try:
+        claim = SrpShipRequest.objects.create(
+            character=char,
+            killmail_id=killmail_id,
+            ship_name=ship_name,
+            ship_type_id=ship_type_id,
+            srp_total_amount=total_value,
+            request_status="pending",
+        )
+        return JsonResponse({"status": "ok", "claim_id": claim.pk})
+    except Exception as e:
+        return JsonResponse({"error": f"Failed to create SRP claim: {e}"}, status=500)
+
+
+@require_GET
+@csrf_exempt
+@xframe_options_exempt
+def api_timers(request):
+    """Return upcoming structure timers from the timerboard plugin.
+
+    Field names vary between timerboard plugins (``timer`` vs
+    ``timer_date`` vs ``date`` for the datetime; ``system`` vs
+    ``eve_solar_system_id`` for the location, etc.). We probe the model
+    for a usable datetime field and fall back gracefully so a schema
+    mismatch returns ``[]`` with a logged warning rather than crashing.
+    """
+    token_obj, err = _auth_and_get_token(request)
+    if err:
+        return err
+
+    try:
+        from allianceauth.timerboard.models import Timer
+    except ImportError:
+        return JsonResponse({"timers": [], "error": "Timerboard plugin not installed"})
+
+    # Pick the first datetime field that actually exists on the model.
+    candidate_time_fields = ("timer", "timer_date", "date", "evetime", "time")
+    time_field = None
+    try:
+        field_names = {f.name for f in Timer._meta.get_fields()}
+        for cand in candidate_time_fields:
+            if cand in field_names:
+                time_field = cand
+                break
+    except Exception as e:
+        logger.warning("Timer model introspection failed: %s", e)
+
+    if not time_field:
+        logger.warning(
+            "Timerboard plugin installed but no recognised timer datetime "
+            "field found on %s (tried %s)",
+            Timer.__name__, candidate_time_fields,
+        )
+        return JsonResponse({"timers": [], "error": "Unsupported timerboard schema"})
+
+    now = timezone.now()
+    soon = now + timedelta(hours=48)
+    timers = []
+    try:
+        qs = (
+            Timer.objects
+            .filter(**{f"{time_field}__gte": now, f"{time_field}__lte": soon})
+            .order_by(time_field)[:50]
+        )
+        for t in qs:
+            tv = getattr(t, time_field, None)
+            entry = {
+                "system": _first_present(t, ("system", "solar_system", "location", "")),
+                "structure_type": _first_present(t, ("structure_type", "structure", "type", "")),
+                "timer_time": tv.isoformat() if tv and hasattr(tv, "isoformat") else None,
+                "time_remaining": None,
+                "importance": _first_present(t, ("importance", "priority", ""), default="medium"),
+            }
+            if tv and hasattr(tv, "isoformat"):
+                delta = tv - now
+                if delta.total_seconds() > 0:
+                    hours = int(delta.total_seconds() // 3600)
+                    minutes = int((delta.total_seconds() % 3600) // 60)
+                    entry["time_remaining"] = f"{hours}h {minutes}m"
+            timers.append(entry)
+    except Exception as e:
+        logger.warning("Timer query failed: %s", e)
+
+    return JsonResponse({"timers": timers})
+
+
+def _first_present(obj, names, default=None):
+    """Return the first non-empty attribute from ``names`` on ``obj``."""
+    for n in names:
+        if not n:
+            continue
+        v = getattr(obj, n, None)
+        if v not in (None, ""):
+            return v
+    return default
+
+
+@require_http_methods(["GET", "POST"])
+@csrf_exempt
+@xframe_options_exempt
+def api_fleet_templates(request):
+    """GET: return all corp fleet templates. POST: create/update (staff only).
+
+    Note: ``name`` is the natural key. Reusing an existing name on POST will
+    overwrite that template — including templates created by other staff
+    members. This is intentional (corp-wide shared templates), but callers
+    should be aware.
+    """
+    import json
+
+    token_obj, err = _auth_and_get_token(request)
+    if err:
+        return err
+
+    from aa_eveaio.models import EveAioFleetTemplate
+
+    if request.method == "POST":
+        if not token_obj.user.is_staff:
+            return JsonResponse({"error": "Staff access required"}, status=403)
+        try:
+            body = json.loads(request.body or b"{}")
+        except (json.JSONDecodeError, ValueError):
+            return JsonResponse({"error": "Invalid JSON body"}, status=400)
+        name = body.get("name", "").strip()
+        if not name:
+            return JsonResponse({"error": "name required"}, status=400)
+        template_json = body.get("template_json", "{}")
+        if not isinstance(template_json, str):
+            template_json = json.dumps(template_json)
+
+        # Preserve the original author on update: only set created_by when
+        # actually creating a new row. update_or_create applies ``defaults``
+        # on both create and update, so we split the two paths.
+        defaults = {
+            "description": body.get("description", ""),
+            "template_json": template_json,
+        }
+        obj, created = EveAioFleetTemplate.objects.get_or_create(
+            name=name,
+            defaults={**defaults, "created_by": token_obj.user},
+        )
+        if not created:
+            # Update mutable fields without touching created_by.
+            obj.description = defaults["description"]
+            obj.template_json = defaults["template_json"]
+            obj.save(update_fields=["description", "template_json", "updated_at"])
+
+        return JsonResponse({
+            "status": "ok",
+            "created": created,
+            "template": {
+                "name": obj.name,
+                "description": obj.description,
+                "template_json": obj.template_json,
+                "updated_at": obj.updated_at.isoformat(),
+            },
+        })
+
+    templates = []
+    for t in EveAioFleetTemplate.objects.all().order_by("name"):
+        templates.append({
+            "name": t.name,
+            "description": t.description,
+            "template_json": t.template_json,
+            "updated_at": t.updated_at.isoformat(),
+        })
+    return JsonResponse({"templates": templates})

@@ -3,7 +3,13 @@
 from django.contrib import admin
 from django.utils.html import format_html
 
-from aa_eveaio.models import EveAioCharacterRole, EveAioServiceToken, EveAioSettingsSync, EveAioDataSync
+from aa_eveaio.models import (
+    EveAioCharacterRole,
+    EveAioServiceToken,
+    EveAioSettingsSync,
+    EveAioDataSync,
+    EveAioFleetTemplate,
+)
 
 
 @admin.register(EveAioServiceToken)
@@ -51,3 +57,10 @@ class EveAioDataSyncAdmin(admin.ModelAdmin):
     list_display = ("user", "app_version", "updated_at")
     readonly_fields = ("created_at", "updated_at")
     search_fields = ("user__username",)
+
+
+@admin.register(EveAioFleetTemplate)
+class EveAioFleetTemplateAdmin(admin.ModelAdmin):
+    list_display = ("name", "updated_at")
+    search_fields = ("name",)
+    readonly_fields = ("created_at", "updated_at")

@@ -19,4 +19,13 @@ urlpatterns = [
     path("api/settings_sync/", views.api_settings_sync, name="api_settings_sync"),
     path("api/data_sync/", views.api_data_sync, name="api_data_sync"),
     path("api/auth/", views.api_auth, name="api_auth"),
+    path("api/fleet/roster/", views.api_fleet_roster, name="api_fleet_roster"),
+    path("api/discord_map/", views.api_discord_map, name="api_discord_map"),
+    path("api/groups/", views.api_groups, name="api_groups"),
+    path("api/doctrines/", views.api_doctrines, name="api_doctrines"),
+    path("api/fat/", views.api_fat, name="api_fat"),
+    path("api/srp/eligible/", views.api_srp_eligible, name="api_srp_eligible"),
+    path("api/srp/claim/", views.api_srp_claim, name="api_srp_claim"),
+    path("api/timers/", views.api_timers, name="api_timers"),
+    path("api/fleet_templates/", views.api_fleet_templates, name="api_fleet_templates"),
 ]

@@ -184,3 +184,30 @@ class EveAioDataSync(models.Model):
 
     def __str__(self):
         return f"EVE AIO data sync for {self.user}"
+
+
+class EveAioFleetTemplate(models.Model):
+    """Corp-shared fleet template for the Fleet Manager."""
+
+    name = models.CharField(max_length=128)
+    description = models.TextField(blank=True, default="")
+    template_json = models.TextField(
+        default="{}",
+        help_text="JSON blob of the fleet template",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "EVE AIO fleet template"
+        verbose_name_plural = "EVE AIO fleet templates"
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
