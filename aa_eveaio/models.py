@@ -211,3 +211,64 @@ class EveAioFleetTemplate(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class EveAioDoctrine(models.Model):
+    """Doctrine published from EVE AIO desktop app by directors/CEOs/FCs."""
+
+    name = models.CharField(max_length=128, unique=True)
+    description = models.TextField(blank=True, default="")
+    tags = models.CharField(
+        max_length=256,
+        blank=True,
+        default="",
+        help_text="Comma-separated tags (e.g. armor,shield,bombers)",
+    )
+    ship_class = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="Ship class label (e.g. Cruiser, Battleship, Frigate)",
+    )
+    published_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "EVE AIO doctrine"
+        verbose_name_plural = "EVE AIO doctrines"
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class EveAioDoctrineFitting(models.Model):
+    """Individual fitting within a doctrine, published from EVE AIO."""
+
+    doctrine = models.ForeignKey(
+        EveAioDoctrine,
+        on_delete=models.CASCADE,
+        related_name="fittings",
+    )
+    name = models.CharField(max_length=128)
+    ship_type_id = models.IntegerField(default=0)
+    ship_name = models.CharField(max_length=128, blank=True, default="")
+    eft_text = models.TextField(blank=True, default="", help_text="EFT format fitting")
+    dna = models.CharField(max_length=512, blank=True, default="", help_text="DNA format fitting")
+    description = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "EVE AIO doctrine fitting"
+        verbose_name_plural = "EVE AIO doctrine fittings"
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.doctrine.name} — {self.name}"

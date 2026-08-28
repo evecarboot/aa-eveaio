@@ -9,6 +9,8 @@ from aa_eveaio.models import (
     EveAioSettingsSync,
     EveAioDataSync,
     EveAioFleetTemplate,
+    EveAioDoctrine,
+    EveAioDoctrineFitting,
 )
 
 
@@ -64,3 +66,18 @@ class EveAioFleetTemplateAdmin(admin.ModelAdmin):
     list_display = ("name", "updated_at")
     search_fields = ("name",)
     readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(EveAioDoctrine)
+class EveAioDoctrineAdmin(admin.ModelAdmin):
+    list_display = ("name", "ship_class", "tags", "updated_at")
+    search_fields = ("name", "tags", "ship_class")
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(EveAioDoctrineFitting)
+class EveAioDoctrineFittingAdmin(admin.ModelAdmin):
+    list_display = ("name", "ship_name", "doctrine", "updated_at")
+    search_fields = ("name", "ship_name", "doctrine__name")
+    readonly_fields = ("created_at", "updated_at")
+    list_filter = ("doctrine",)

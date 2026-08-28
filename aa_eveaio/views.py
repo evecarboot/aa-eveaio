@@ -1043,10 +1043,166 @@ def api_doctrines(request):
     return JsonResponse({"doctrines": doctrines})
 
 
-@require_GET
 @csrf_exempt
 @xframe_options_exempt
-def api_fat(request):
+def api_doctrine_publish(request):
+    """POST: Publish or update a doctrine with fittings from EVE AIO (#6).
+    GET: List EVE AIO-published doctrines.
+
+    Requires director role or staff access.
+    Body for POST:
+    {
+        "doctrine_name": "Armor HACs",
+        "description": "...",
+        "tags": "armor,cruiser",
+        "ship_class": "Cruiser",
+        "fittings": [
+            {
+                "name": "Deimos",
+                "ship_type_id": 22474,
+                "ship_name": "Deimos",
+                "eft_text": "[Deimos, ...]",
+                "dna": "22474:...",
+                "description": "..."
+            }
+        ]
+    }
+    """
+    token_obj, err = _auth_and_get_token(request)
+    if err:
+        return err
+
+    # Role check: must be director or staff
+    from aa_eveaio.models import EveAioCharacterRole, ROLE_DIRECTOR
+    user_chars = _get_user_characters_from_aa(token_obj.user_id)
+    char_ids = [c["character_id"] for c in user_chars]
+    is_director = EveAioCharacterRole.objects.filter(
+        character_id__in=char_ids, role=ROLE_DIRECTOR
+    ).exists()
+    if not is_director and not token_obj.user.is_staff:
+        return JsonResponse(
+            {"error": "Director role or staff access required to publish doctrines"},
+            status=403,
+        )
+
+    from aa_eveaio.models import EveAioDoctrine, EveAioDoctrineFitting
+
+    if request.method == "GET":
+        doctrines = []
+        for d in EveAioDoctrine.objects.all().order_by("name"):
+            fits = []
+            for f in d.fittings.all().order_by("name"):
+                fits.append({
+                    "name": f.name,
+                    "ship_type_id": f.ship_type_id,
+                    "ship_name": f.ship_name,
+                    "eft_text": f.eft_text,
+                    "dna": f.dna,
+                    "description": f.description,
+                })
+            doctrines.append({
+                "name": d.name,
+                "description": d.description,
+                "tags": d.tags,
+                "ship_class": d.ship_class,
+                "fittings": fits,
+            })
+        return JsonResponse({"doctrines": doctrines})
+
+    if request.method == "POST":
+        try:
+            body = json.loads(request.body or b"{}")
+        except (json.JSONDecodeError, ValueError):
+            return JsonResponse({"error": "Invalid JSON body"}, status=400)
+
+        doctrine_name = (body.get("doctrine_name") or "").strip()
+        if not doctrine_name:
+            return JsonResponse({"error": "doctrine_name is required"}, status=400)
+
+        fittings = body.get("fittings") or []
+        if not fittings:
+            return JsonResponse({"error": "At least one fitting is required"}, status=400)
+
+        # Create or update doctrine
+        doctrine, created = EveAioDoctrine.objects.update_or_create(
+            name=doctrine_name,
+            defaults={
+                "description": body.get("description", ""),
+                "tags": body.get("tags", ""),
+                "ship_class": body.get("ship_class", ""),
+                "published_by": token_obj.user,
+            },
+        )
+
+        # Replace all fittings (delete existing, add new)
+        doctrine.fittings.all().delete()
+        for fit_data in fittings:
+            EveAioDoctrineFitting.objects.create(
+                doctrine=doctrine,
+                name=(fit_data.get("name") or "").strip() or "Unnamed",
+                ship_type_id=int(fit_data.get("ship_type_id", 0) or 0),
+                ship_name=fit_data.get("ship_name", ""),
+                eft_text=fit_data.get("eft_text", ""),
+                dna=fit_data.get("dna", ""),
+                description=fit_data.get("description", ""),
+            )
+
+        action = "created" if created else "updated"
+        logger.info(
+            "Doctrine '%s' %s by user %s with %d fitting(s)",
+            doctrine_name, action, token_obj.user, len(fittings),
+        )
+        return JsonResponse({
+            "status": "ok",
+            "doctrine": doctrine_name,
+            "action": action,
+            "fittings_count": len(fittings),
+        })
+
+    return JsonResponse({"error": "Method not allowed"}, status=405)
+
+
+@csrf_exempt
+@xframe_options_exempt
+def api_doctrine_delete(request):
+    """DELETE: Remove a doctrine published from EVE AIO (#6).
+    Requires director role or staff access.
+    Body: {"doctrine_name": "Armor HACs"}
+    """
+    token_obj, err = _auth_and_get_token(request)
+    if err:
+        return err
+
+    from aa_eveaio.models import EveAioCharacterRole, ROLE_DIRECTOR
+    user_chars = _get_user_characters_from_aa(token_obj.user_id)
+    char_ids = [c["character_id"] for c in user_chars]
+    is_director = EveAioCharacterRole.objects.filter(
+        character_id__in=char_ids, role=ROLE_DIRECTOR
+    ).exists()
+    if not is_director and not token_obj.user.is_staff:
+        return JsonResponse(
+            {"error": "Director role or staff access required to delete doctrines"},
+            status=403,
+        )
+
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required"}, status=405)
+
+    try:
+        body = json.loads(request.body or b"{}")
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON body"}, status=400)
+
+    doctrine_name = (body.get("doctrine_name") or "").strip()
+    if not doctrine_name:
+        return JsonResponse({"error": "doctrine_name is required"}, status=400)
+
+    from aa_eveaio.models import EveAioDoctrine
+    deleted, _ = EveAioDoctrine.objects.filter(name=doctrine_name).delete()
+    if deleted == 0:
+        return JsonResponse({"error": f"Doctrine '{doctrine_name}' not found"}, status=404)
+    logger.info("Doctrine '%s' deleted by user %s", doctrine_name, token_obj.user)
+    return JsonResponse({"status": "ok", "doctrine": doctrine_name})
     """Return per-pilot fleet attendance from the FAT plugin."""
     token_obj, err = _auth_and_get_token(request)
     if err:
