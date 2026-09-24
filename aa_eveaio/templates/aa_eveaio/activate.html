@@ -1,0 +1,23 @@
+{% extends "aa_eveaio/base.html" %}
+{% load i18n %}
+
+{% block eveaio_content %}
+<h1>{% translate "Activate EVE AIO" %}</h1>
+<div class="card card-primary">
+    <div class="card-body">
+        <p>{% translate "This will generate a key you can enter in EVE AIO Settings." %}</p>
+        <form method="post">
+            {% csrf_token %}
+            <div class="d-flex flex-wrap gap-2">
+                <button type="submit" class="btn btn-success">
+                    <i class="fa-solid fa-check fa-fw"></i>
+                    {% translate "Activate" %}
+                </button>
+                <a href="{% url 'aa_eveaio:index' %}" class="btn btn-secondary">
+                    {% translate "Cancel" %}
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
